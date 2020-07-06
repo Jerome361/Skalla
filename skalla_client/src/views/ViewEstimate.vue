@@ -4,20 +4,30 @@
     </base-header>
     <div class="container-fluid mt--7">
         <div class="card rounded">
+          <div class="row">
           <div class="col card-header border-1 text-left">
-              <i @click="newEstimateModal=true" class="fa fa-plus-circle" aria-hidden="true"></i> 
+              <i @click="newEstimateModal=true" class="fa fa-plus-circle" aria-hidden="true"></i>  
+          </div>
+          <div class="col card-header border-1 text-right" v-if="this.$store.getters.getUser.role=='Project Manager'">
+              <base-button type="primary" @click="consultantEstimateModal = true">
+              Add consultant Estimate
+            </base-button>
+          </div>
           </div>
             <div>
                   <ViewEstimateTable :projectEstimates='projectEstimates' :project='currentProject[0]' ref='ViewEstimateTable'>
                   </ViewEstimateTable>
             </div>
             <div>
-              <PmEstimateTable :pmEstimates='pmEstimate' ref="PmEstimateTable">
+              <PmEstimateTable :pmEstimates='pmEstimate' :pmId='pmId' role="Project Manager" ref="PmEstimateTable">
               </PmEstimateTable>
             </div>
-        
+            <div>
+              <PmEstimateTable :pmEstimates='consultantEstimate' :pmId='consultantName' role="Consultant" ref="PmEstimateTable">
+              </PmEstimateTable>
+            </div>
         </div>
-          <div class="row ">
+          <div class="row">
             <div class="col card-header border-1 text-right">
               <i class="fa fa-cloud-download-alt" aria-hidden="true"></i>
             </div>       
@@ -128,7 +138,7 @@
                     </div>
                   </div>
 
-                  <div class="row">
+                  <div class="row" v-if="this.$store.getters.getUser.role=='Project Manager'">
                     <div class=" col-sm-3">
                       <h6 class="heading-small text-muted mb-4 float-left">Consultants</h6>
                     </div>
@@ -266,6 +276,87 @@
 
                 </modal>
                 <!--Project setup modal ends here -->
+                <modal :show.sync="consultantEstimateModal">
+              <template slot="header">
+                  <h3 class="modal-title" id="exampleModalLabel">Add Consultants Estimate</h3>
+              </template>
+
+              <form method="POST" role="form" @submit.prevent="addEstimate">
+                <div>
+                <div class="row">
+                  <div class="col-sm-3">
+                      <h6 class="heading-small text-muted mb-4 float-left">Assign to</h6>
+                  </div>
+                  <div class="col-sm">
+                    <base-input alternative
+                      class="mb-3"
+                      placeholder="Add Consultants here...">
+                      <select class="custom-select" id="inputGroupSelect01" v-model="consultantRequest.consultant">
+                          <option value="" disabled>Please select a consultant</option>
+                          <option  v-for="(consultant,index) in consultants" :key='index' :value="consultant.name" > {{consultant.name}}</option>
+                      </select>
+                    </base-input>
+                  </div>
+                </div>
+
+                <!-- <div class="row">
+                  <div class="col-sm-3">
+                      <h6 class="heading-small text-muted mb-4 float-left">Due Date</h6>
+                  </div>
+                  <div class="col-sm">
+                    <base-input addon-left-icon="ni ni-calendar-grid-58">
+                        <flat-picker slot-scope="{focus, blur}"
+                          @on-open="focus"
+                          @on-close="blur"
+                          :config="{allowInput: true, dateFormat: 'd-m-Y'}"
+                          placeholder="17-07-2019"
+                          class="form-control datepicker"
+                          :class="{ 'has-error': submitting && invalidDueDate }"
+                         >
+                        </flat-picker>
+                    </base-input>
+                  </div>
+                </div>
+
+                <div class="row">
+                  <div class="col-sm-3">
+                    <h6 class="heading-small text-muted mb-4 float-left">Title</h6>
+                  </div>
+                  <div class="col-sm">
+                    <base-input alternative
+                      class="mb-3"
+                      placeholder="Add title here...">
+                    </base-input>
+                  </div>
+                </div>
+
+                <div class="row">
+                  <div class="col-sm-5">
+                    <h6 class="heading-small text-muted mb-4 float-left">Main Task Description </h6>
+                  </div>
+                  <div class="col-sm-12">
+                    <base-input alternative=""
+                    :class="{ 'has-error': submitting && invalidTaskDescription }"
+
+                    >
+                      <textarea rows="4"  class="form-control form-control-alternative" placeholder="Add main task description here ..."></textarea>
+                    </base-input>
+                  </div>
+                  </div> -->
+                </div>
+
+                <p v-if="error && submitting" class="error-message">
+                    ❗Please fill in all fields
+                </p>
+                <p v-if="success" class="success-message" v-show="showSuccess">
+                    ✅ Request successfully sent
+                </p>
+                <base-button class="shadow-none mt-4 cancel-color" type="secondary" @click="handleSaveDraft()" >Save as draft</base-button>
+                <!-- <base-button class="shadow-none mt-4" type="primary" @click="addEstimate">Send request</base-button> -->
+                <base-button class="shadow-none mt-4" type="primary" @click="this.sendRequest" >Send request</base-button>
+              </form>
+
+            </modal>
           </div>     
                         <!-- end of add task-->      
           <!-- </div> -->
@@ -284,10 +375,16 @@ export default {
     return {
       newEstimateModal: false,
       projectSetupModal: false,
+      consultantEstimateModal: false,
       projects:[],
+      pmId:'',
+      consultantName:'',
+      requestConsultant:false,
       projectEstimates:[],
       projectId:"",
       pmEstimate:[],
+      consultantEstimate:[],
+      consultants:[],
       projectSetup:{
         developers:0,
         pmsInvolved:0,
@@ -295,6 +392,10 @@ export default {
         pmOverhead:0,
         comments:"",
       },
+      consultantRequest:{
+        consultant:""
+      }
+      ,
       currentProject:[],
       estimateData:{
         task:'',
@@ -357,17 +458,47 @@ export default {
           this.projectId=project._id
         }
       })
-      requiredProject;
       // Get developer estimates of specific project
       const estimatesResponse = await axios.get(`/api/project-estimates/`+this.projectId);
       this.projectEstimates=estimatesResponse.data;
 
+      name = estimatesResponse.data[0].projectManager
+      const pmResponse = await axios.get('api/users/developer/'+ name);
+      if(this.$store.getters.getUser.role=="Project Manager"){
+              this.pmId = "My Estimate";
+      }else if(this.$store.getters.getUser.role=="Consultant"){
+              this.pmId = pmResponse.data.name
+      }
+
+      // if(this.$store.getters.getUser.role=="Project Manager"){
       // Get project manager estimates of a specific project
       const pmEstimatesResponse = await axios.get(`/api/pm-estimate/`+this.projectId);
       this.pmEstimate=pmEstimatesResponse.data;
+      
+      // Get consultant estimates of a specific project
+      const consultantEstimatesResponse = await axios.get(`/api/consultant-estimate/`+this.projectId);
+      this.consultantEstimate=consultantEstimatesResponse.data;
 
+      const resp = await axios.get(`/api/projects/`+this.projectId);
+      if(this.$store.getters.getUser.role=="Consultant"){
+              this.consultantName = "My Estimate";
+      }else if(this.$store.getters.getUser.role=="Project Manager"){
+              this.consultantName = resp.data[0].consultant;
+      }
+      
+
+      // name = estimatesResponse.data[0].projectManager
+      // const pmResponse = await axios.get('api/users/developer/'+ name);
+      // this.pmId = pmResponse.data.name
+      // }
+      
+
+      // Get all registered consultants
+      const consultantsRequest = await axios.get("/api/users/consultants");
+      this.consultants = consultantsRequest.data
       // call function which fetches project details
        this.projectResponse();
+
 }catch(e){
       // eslint-disable-next-line no-console
       // console.error(e);      
@@ -453,7 +584,12 @@ computed: {
             sum:this.calculatedSumHours,
             adjustedSum:this.calculatedAdjustedSumHours
         }
-        await axios.post("/api/pm-estimate/"+this.projectId,newEstimate)
+        if(this.$store.getters.getUser.role=='Project Manager'){
+        await axios.post("/api/pm-estimate/"+this.projectId,newEstimate);
+        }else if(this.$store.getters.getUser.role=='Consultant'){
+        await axios.post("/api/consultant-estimate/"+this.projectId,newEstimate);        
+        }
+
          this.$refs.PmEstimateTable.appendEstimate(newEstimate);
            this.success = true;
         this.error = false;
@@ -461,6 +597,7 @@ computed: {
         this.clearForm();
 },
 async addProjectsetup(){
+  if (this.requestConsultant==false){
   this.submittingSetup=true;
    if(this.invalidDevelopers || this.invalidPmsInvolved || this.invalidDailyScrum || this.invalidOverhead || this.invalidComments){
           this.setupSuccess = false;
@@ -475,6 +612,10 @@ async addProjectsetup(){
   this.projectSetupModal=false;
   let response = await axios.get("/api/projects/"+this.projectId);
   this.$refs.ViewEstimateTable.updateProject(response.data[0]);
+  }
+  else{
+    await axios.put("/api/projects/"+this.projectId,this.consultantRequest);
+  }
 },
    clearForm(){
         setTimeout(() => {
@@ -483,8 +624,23 @@ async addProjectsetup(){
         }, 2000);
         this.showSuccess=true;
         this.showSetupSuccess = false;
-        this.estimateData={};
+        this.estimateData={
+        task:'',
+        quantity:1,
+        meetingPreparation:0,
+        actualMeeting:0,
+        meetingReview:0,
+        consultants:0,
+        certainity:0,
+        sum:0,
+        adjustedSum:0
+      };
         this.projectSetup = {};
+            },
+            sendRequest(){
+              alert(this.consultantRequest.consultant)
+              this.requestConsultant = true;
+              this.addProjectsetup();
             }
     }  
      
